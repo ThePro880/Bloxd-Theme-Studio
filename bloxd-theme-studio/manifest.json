@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Bloxd.io Theme Studio",
+  "version": "2.0",
+  "description": "Change the theme of Bloxd.io, apply instant themes, customize backgrounds, and save your own designs.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://bloxd.io/*",
+    "https://*.bloxd.io/*"
+  ],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Bloxd.io Theme Studio",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://bloxd.io/more_settings*",
+        "https://*.bloxd.io/more_settings*"
+      ],
+      "js": ["more_settings.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://bloxd.io/*",
+        "https://*.bloxd.io/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

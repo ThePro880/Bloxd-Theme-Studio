@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Bloxd.io Theme Studio",
+  "version": "2.5",
+  "description": "Change the theme of Bloxd.io, customize backgrounds, and play Bloxd OSTs, local MP3s, and YouTube playlists.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://bloxd.io/*",
+    "https://*.bloxd.io/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Bloxd.io Theme Studio",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://bloxd.io/more_settings*",
+        "https://*.bloxd.io/more_settings*"
+      ],
+      "js": ["ost_data.js", "more_settings.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://bloxd.io/*",
+        "https://*.bloxd.io/*"
+      ],
+      "js": ["ost_data.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

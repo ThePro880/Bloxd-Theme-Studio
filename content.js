@@ -6,9 +6,26 @@
   const OST_ID = "bloxd-ost-widget";
   const YT_SUPPORTED_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
+  const DEFAULT_MUSIC = {
+    enabled: true,
+    minimized: false,
+    activePlaylistId: "survival",
+    enabledPlaylists: ["youtube", "custom", "all", "survival", "pirates"],
+    volume: 0.5,
+    playbackRate: 1,
+    shuffle: false,
+    repeat: false,
+    bassBoost: false,
+    audioMode: "normal",
+    visualizer: true,
+    posX: null,
+    posY: null,
+    customUpdatedAt: 0
+  };
+
   let currentTheme = null;
   let extra = { bgMode: "solid", bgColor2: "#0f172a", bgImage: "", bgDim: 40, fxCount: 24, fxSpeed: 6, hideFxInGame: true };
-  let musicCfg = { enabled: true, minimized: false, activePlaylistId: "survival", enabledPlaylists: ["youtube", "custom", "all", "survival", "pirates"], volume: 0.5, playbackRate: 1, posX: null, posY: null, customUpdatedAt: 0 };
+  let musicCfg = { ...DEFAULT_MUSIC };
   let customTracks = [];
   let ytTracks = [];
   let scanTimer = null;
@@ -18,6 +35,7 @@
     if (!el || el.nodeType !== 1) return true;
     const tag = el.tagName;
     if (["CANVAS", "IFRAME", "IMG", "VIDEO", "AUDIO", "INS", "SCRIPT", "STYLE", "SVG", "PATH"].includes(tag)) return true;
+    if (el.getAttribute("data-bt-ignore") === "1" || el.closest('[data-bt-ignore="1"]')) return true;
     if (el.id === FX_ID || el.closest(`#${FX_ID}`) || el.id === OST_ID || el.closest(`#${OST_ID}`)) return true;
     const cls = typeof el.className === "string" ? el.className : (el.getAttribute("class") || "");
     if (/(^|[\s_-])(ad|ads|advert|banner|sponsor|adinplay|playwire|cpmstar|google|remove-?ads)([\s_-]|$)/i.test(`${el.id || ""} ${cls}`)) return true;
@@ -135,6 +153,10 @@
   }
 
   function scanAndTag() {
+    if (musicCfg.enabled && document.body && !document.getElementById(OST_ID)) {
+      mountMiniPlayer();
+    }
+
     const hasCustomBg = extra.bgMode && extra.bgMode !== "solid";
     if (!currentTheme && !hasCustomBg) return;
     if (!document.body) return;
@@ -187,13 +209,24 @@
     scanAndTag();
   }
 
-  // --- MINI REPRODUCTOR FLOTANTE: OSTS + MP3 LOCALES + YOUTUBE + VELOCIDAD ---
-  const audio = new Audio();
+  // --- MINI REPRODUCTOR FLOTANTE v3.0: DOBLE CANAL + SHUFFLE + REPEAT + VISUALIZER + BASS/NC ---
+  // Canal 1 (MP3 locales): conectado a Web Audio API para Bass Boost y visualizador real sin bloqueos CORS
+  const localAudio = new Audio();
+  // Canal 2 (Bloxd OST remotos): independiente de Web Audio para que CORS nunca silencie los OST
+  const remoteAudio = new Audio();
+
+  let audioCtx = null;
+  let bassFilter = null;
+  let gainComp = null;
+  let analyser = null;
+  let freqData = null;
+
+  let currentChannel = "none"; // "local" | "remote" | "yt" | "none"
   let currentBlobUrl = null;
   let ytIframe = null;
   let ytReady = false;
   let ytCurrentVideoId = null;
-  let showYtVideo = false;
+  let showYtVideo = true;
   let trackIdx = 0;
   let urlTry = 0;
   let failCount = 0;
@@ -201,6 +234,47 @@
   let wantPlay = false;
   let stepDir = 1;
   let drawerOpen = false;
+  let vizRaf = null;
+
+  function ensureLocalAudioGraph() {
+    if (audioCtx) {
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      applyBassBoost();
+      return;
+    }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = new AC();
+      const src = audioCtx.createMediaElementSource(localAudio);
+      bassFilter = audioCtx.createBiquadFilter();
+      bassFilter.type = "lowshelf";
+      bassFilter.frequency.value = 120;
+      bassFilter.gain.value = musicCfg.bassBoost ? 11 : 0;
+
+      gainComp = audioCtx.createGain();
+      gainComp.gain.value = musicCfg.bassBoost ? 0.85 : 1;
+
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.78;
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      src.connect(bassFilter);
+      bassFilter.connect(gainComp);
+      gainComp.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    } catch {
+      audioCtx = null;
+    }
+  }
+
+  function applyBassBoost() {
+    if (!bassFilter || !gainComp) return;
+    const on = !!musicCfg.bassBoost;
+    bassFilter.gain.value = on ? 11 : 0;
+    gainComp.gain.value = on ? 0.85 : 1;
+  }
 
   function getConfiguredRate() {
     const r = Number(musicCfg.playbackRate);
@@ -221,15 +295,37 @@
     return best;
   }
 
+  function setPitchPreserve(el, keepPitch) {
+    try {
+      if ("preservesPitch" in el) el.preservesPitch = keepPitch;
+      if ("webkitPreservesPitch" in el) el.webkitPreservesPitch = keepPitch;
+    } catch {
+      // Ignora si el navegador no soporta la propiedad
+    }
+  }
+
   function applyPlaybackSpeed() {
     const rate = getConfiguredRate();
     const safeAudioRate = Math.min(2, Math.max(0.0625, rate));
-    try {
-      audio.playbackRate = safeAudioRate;
-    } catch {
-      audio.playbackRate = 1;
-    }
+    const keepPitch = (musicCfg.audioMode || "normal") === "normal";
+
+    [localAudio, remoteAudio].forEach((el) => {
+      setPitchPreserve(el, keepPitch);
+      try {
+        el.playbackRate = safeAudioRate;
+      } catch {
+        el.playbackRate = 1;
+      }
+    });
+
     ytCmd("setPlaybackRate", [getClosestYtRate(rate)]);
+  }
+
+  function applyVolume() {
+    const vol = Math.min(1, Math.max(0, Number(musicCfg.volume ?? 0.5)));
+    localAudio.volume = vol;
+    remoteAudio.volume = vol;
+    ytCmd("setVolume", [Math.round(vol * 100)]);
   }
 
   function buildMiniSpeedOptions(selectedRate) {
@@ -243,7 +339,8 @@
     return html;
   }
 
-  audio.addEventListener("loadedmetadata", applyPlaybackSpeed);
+  localAudio.addEventListener("loadedmetadata", applyPlaybackSpeed);
+  remoteAudio.addEventListener("loadedmetadata", applyPlaybackSpeed);
 
   async function refreshCustomTracks() {
     if (!window.BLOXD_CUSTOM_DB) return;
@@ -298,6 +395,19 @@
     return list.find((p) => p.id === musicCfg.activePlaylistId) || list[0] || { id: "none", name: "no playlist", tracks: [] };
   }
 
+  function pickNextIndex(len, dir) {
+    if (len <= 1) return 0;
+    if (musicCfg.shuffle) {
+      let next = trackIdx;
+      for (let tries = 0; tries < 6 && next === trackIdx; tries++) {
+        next = Math.floor(Math.random() * len);
+      }
+      if (next === trackIdx) next = (trackIdx + 1) % len;
+      return next;
+    }
+    return ((trackIdx + dir) % len + len) % len;
+  }
+
   function revokeBlobUrl() {
     if (currentBlobUrl) {
       URL.revokeObjectURL(currentBlobUrl);
@@ -305,10 +415,13 @@
     }
   }
 
-  function resetAudioSource() {
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+  function resetAudioElements() {
+    localAudio.pause();
+    localAudio.removeAttribute("src");
+    localAudio.load();
+    remoteAudio.pause();
+    remoteAudio.removeAttribute("src");
+    remoteAudio.load();
     revokeBlobUrl();
   }
 
@@ -329,8 +442,10 @@
   function stopAllPlayback() {
     wantPlay = false;
     isPlaying = false;
-    resetAudioSource();
+    currentChannel = "none";
+    resetAudioElements();
     destroyYtIframe();
+    stopVisualizer();
   }
 
   function buildYtEmbedUrl(videoId) {
@@ -392,6 +507,26 @@
     ytIframe = iframe;
   }
 
+  function handleTrackFinished() {
+    const pl = getActivePlaylist();
+    if (!pl.tracks.length) return;
+    if (musicCfg.repeat) {
+      if (currentChannel === "yt") {
+        ytCmd("seekTo", [0, true]);
+        ytCmd("playVideo");
+      } else {
+        const el = currentChannel === "local" ? localAudio : remoteAudio;
+        el.currentTime = 0;
+        el.play().catch(() => loadAndPlayTrack(true));
+      }
+      return;
+    }
+    trackIdx = pickNextIndex(pl.tracks.length, 1);
+    stepDir = 1;
+    failCount = 0;
+    loadAndPlayTrack(true);
+  }
+
   function handleYtState(state) {
     if (state === 1) {
       ytReady = true;
@@ -405,10 +540,7 @@
       isPlaying = false;
       updatePlayerUI();
     } else if (state === 0 && wantPlay) {
-      trackIdx++;
-      stepDir = 1;
-      failCount = 0;
-      loadAndPlayTrack(true);
+      handleTrackFinished();
     }
   }
 
@@ -417,7 +549,7 @@
     failCount++;
     if (wantPlay && failCount < pl.tracks.length) {
       updatePlayerUI("Video blocked, next...");
-      trackIdx += stepDir;
+      trackIdx = pickNextIndex(pl.tracks.length, stepDir);
       setTimeout(() => {
         if (wantPlay) loadAndPlayTrack(true);
       }, 900);
@@ -464,7 +596,8 @@
     urlTry = 0;
 
     if (track.isYouTube) {
-      resetAudioSource();
+      resetAudioElements();
+      currentChannel = "yt";
       if (autoPlay) {
         isPlaying = true;
         mountYtVideo(track.videoId);
@@ -477,23 +610,44 @@
     }
 
     destroyYtIframe();
-    revokeBlobUrl();
-    audio.volume = Math.min(1, Math.max(0, Number(musicCfg.volume ?? 0.5)));
+    resetAudioElements();
+
+    const vol = Math.min(1, Math.max(0, Number(musicCfg.volume ?? 0.5)));
 
     if (track.isLocal && track.blob) {
+      currentChannel = "local";
+      ensureLocalAudioGraph();
       currentBlobUrl = URL.createObjectURL(track.blob);
-      audio.src = currentBlobUrl;
-    } else {
-      const urls = window.getBloxdTrackUrls ? window.getBloxdTrackUrls(track.file) : [];
-      if (!urls.length) return;
-      audio.src = urls[0];
+      localAudio.volume = vol;
+      localAudio.src = currentBlobUrl;
+      applyPlaybackSpeed();
+      updatePlayerUI();
+
+      if (autoPlay) {
+        localAudio.play().then(() => {
+          isPlaying = true;
+          failCount = 0;
+          applyPlaybackSpeed();
+          applyBassBoost();
+          updatePlayerUI();
+        }).catch(() => {
+          isPlaying = false;
+          updatePlayerUI();
+        });
+      }
+      return;
     }
 
+    currentChannel = "remote";
+    const urls = window.getBloxdTrackUrls ? window.getBloxdTrackUrls(track.file) : [];
+    if (!urls.length) return;
+    remoteAudio.volume = vol;
+    remoteAudio.src = urls[0];
     applyPlaybackSpeed();
     updatePlayerUI();
 
     if (autoPlay) {
-      audio.play().then(() => {
+      remoteAudio.play().then(() => {
         isPlaying = true;
         failCount = 0;
         applyPlaybackSpeed();
@@ -505,27 +659,29 @@
     }
   }
 
-  audio.addEventListener("ended", () => {
-    trackIdx++;
-    stepDir = 1;
-    failCount = 0;
-    loadAndPlayTrack(true);
+  localAudio.addEventListener("ended", () => {
+    if (currentChannel === "local") handleTrackFinished();
   });
 
-  audio.addEventListener("error", () => {
-    if (!audio.getAttribute("src")) return;
+  remoteAudio.addEventListener("ended", () => {
+    if (currentChannel === "remote") handleTrackFinished();
+  });
+
+  function handleAudioError(channel) {
+    const el = channel === "local" ? localAudio : remoteAudio;
+    if (!el.getAttribute("src") || currentChannel !== channel) return;
     const pl = getActivePlaylist();
     const track = pl.tracks[trackIdx];
     if (!track || track.isYouTube) return;
 
-    if (!track.isLocal && window.getBloxdTrackUrls) {
+    if (channel === "remote" && window.getBloxdTrackUrls) {
       const urls = window.getBloxdTrackUrls(track.file);
       urlTry++;
       if (urlTry < urls.length) {
-        audio.src = urls[urlTry];
+        remoteAudio.src = urls[urlTry];
         applyPlaybackSpeed();
         if (wantPlay) {
-          audio.play().then(() => {
+          remoteAudio.play().then(() => {
             isPlaying = true;
             failCount = 0;
             applyPlaybackSpeed();
@@ -538,7 +694,7 @@
 
     failCount++;
     if (wantPlay && failCount < pl.tracks.length) {
-      trackIdx += stepDir;
+      trackIdx = pickNextIndex(pl.tracks.length, stepDir);
       setTimeout(() => {
         if (wantPlay) loadAndPlayTrack(true);
       }, 200);
@@ -547,7 +703,82 @@
       isPlaying = false;
       updatePlayerUI("Track unavailable");
     }
-  });
+  }
+
+  localAudio.addEventListener("error", () => handleAudioError("local"));
+  remoteAudio.addEventListener("error", () => handleAudioError("remote"));
+
+  // --- VISUALIZADOR DE RITMO EN VIVO ---
+  function stopVisualizer() {
+    if (vizRaf) {
+      cancelAnimationFrame(vizRaf);
+      vizRaf = null;
+    }
+    const canvas = document.querySelector(`#${OST_ID} .bt-ost-viz`);
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  function startVisualizerIfNeeded() {
+    const shouldRun = isPlaying && !musicCfg.minimized && musicCfg.visualizer !== false && musicCfg.enabled;
+    if (!shouldRun) {
+      stopVisualizer();
+      return;
+    }
+    if (vizRaf) return;
+
+    const draw = (now) => {
+      if (!isPlaying || musicCfg.minimized || musicCfg.visualizer === false || !musicCfg.enabled) {
+        stopVisualizer();
+        return;
+      }
+      const canvas = document.querySelector(`#${OST_ID} .bt-ost-viz`);
+      if (!canvas) {
+        vizRaf = null;
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const bars = 16;
+      const gap = 2;
+      const bw = (w - gap * (bars - 1)) / bars;
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--bt-accent").trim() || "#38bdf8";
+      ctx.fillStyle = accent;
+
+      const useRealFft = currentChannel === "local" && analyser && freqData;
+      if (useRealFft) {
+        analyser.getByteFrequencyData(freqData);
+      }
+
+      const speedMul = Math.max(0.4, getConfiguredRate());
+      const volScale = Math.max(0.25, Number(musicCfg.volume ?? 0.5));
+      const t = (now / 1000) * speedMul;
+
+      for (let i = 0; i < bars; i++) {
+        let level = 0.15;
+        if (useRealFft) {
+          const bin = Math.min(freqData.length - 1, Math.floor((i / bars) * (freqData.length * 0.78)));
+          level = Math.max(0.08, freqData[bin] / 255);
+        } else {
+          const wave1 = Math.sin(t * 5.2 + i * 0.65);
+          const wave2 = Math.cos(t * 3.1 - i * 0.42);
+          const beat = Math.abs(Math.sin(t * 2.6 + (i % 3)));
+          level = Math.max(0.1, Math.min(1, (0.28 + 0.35 * Math.abs(wave1 + wave2) * 0.5 + 0.25 * beat) * volScale));
+        }
+        const bh = Math.max(2, Math.round(level * (h - 2)));
+        ctx.fillRect(i * (bw + gap), h - bh, bw, bh);
+      }
+
+      vizRaf = requestAnimationFrame(draw);
+    };
+
+    vizRaf = requestAnimationFrame(draw);
+  }
 
   function ensureOstStyles() {
     if (document.getElementById("bloxd-ost-style")) return;
@@ -563,8 +794,8 @@
       }
       #${OST_ID} * { box-sizing: border-box; }
       .bt-yt-wrap {
-        width: 210px;
-        height: 118px;
+        width: 226px;
+        height: 127px;
         margin-bottom: 5px;
         background: #0b0f1c;
         border: 2px solid #44527a;
@@ -574,10 +805,10 @@
       }
       .bt-yt-wrap.hidden-vid {
         position: fixed;
-        left: -9999px;
-        top: -9999px;
-        width: 200px;
-        height: 120px;
+        right: 0;
+        bottom: 0;
+        width: 1px;
+        height: 1px;
         opacity: 0.01;
         pointer-events: none;
         margin: 0;
@@ -585,7 +816,7 @@
       }
       .bt-yt-frame { width: 100%; height: 100%; border: 0; display: block; }
       .bt-ost-card {
-        width: 210px;
+        width: 226px;
         background: #181d2c;
         border: 2px solid #44527a;
         border-radius: 4px;
@@ -639,20 +870,29 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        margin-bottom: 7px;
+        margin-bottom: 5px;
         text-align: center;
+      }
+      .bt-ost-viz {
+        display: block;
+        width: 100%;
+        height: 18px;
+        margin-bottom: 6px;
+        background: rgba(10, 14, 26, 0.55);
+        border: 1px solid #2b3450;
+        border-radius: 2px;
       }
       .bt-ost-ctrls {
         display: flex;
         justify-content: center;
         align-items: center;
-        gap: 8px;
+        gap: 5px;
       }
       .bt-ost-cbtn {
         background: #242d47;
         border: 1.5px solid #495782;
         color: #f8fafc;
-        width: 30px;
+        width: 28px;
         height: 26px;
         border-radius: 3px;
         font-size: 12px;
@@ -664,14 +904,44 @@
         padding: 0;
       }
       .bt-ost-cbtn:hover { background: #334066; }
+      .bt-ost-cbtn.toggle-on {
+        background: #1d4ed8;
+        border-color: #60a5fa;
+        color: #ffffff;
+      }
       .bt-ost-play {
         background: #3b82f6;
         border-color: #60a5fa;
-        width: 36px;
+        width: 34px;
       }
       .bt-ost-play:hover { background: #60a5fa; }
-      .bt-ost-spd-row {
+      .bt-ost-fx-row {
         margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .bt-ost-fx-btn {
+        flex: 1;
+        background: #20273b;
+        border: 1px solid #44527a;
+        color: #cbd5e1;
+        font-family: inherit;
+        font-size: 10px;
+        font-weight: 800;
+        padding: 3px 4px;
+        border-radius: 2px;
+        cursor: pointer;
+        text-transform: uppercase;
+      }
+      .bt-ost-fx-btn:hover { background: #2c3654; color: #fff; }
+      .bt-ost-fx-btn.active {
+        background: #7c3aed;
+        border-color: #c4b5fd;
+        color: #ffffff;
+      }
+      .bt-ost-spd-row {
+        margin-top: 5px;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -819,6 +1089,7 @@
     if (musicCfg.minimized) {
       card.style.display = "none";
       backBtn.style.display = "inline-block";
+      stopVisualizer();
       return;
     }
 
@@ -829,6 +1100,24 @@
     root.querySelector(".bt-ost-title").textContent = customTitle || track.title;
     root.querySelector(".bt-ost-play").textContent = isPlaying ? "⏸" : "▶";
     root.querySelector(".bt-ost-list-btn").classList.toggle("active", drawerOpen);
+    root.querySelector(".bt-ost-shuf").classList.toggle("toggle-on", !!musicCfg.shuffle);
+    root.querySelector(".bt-ost-rep").classList.toggle("toggle-on", !!musicCfg.repeat);
+
+    const vizEl = root.querySelector(".bt-ost-viz");
+    if (vizEl) vizEl.style.display = musicCfg.visualizer === false ? "none" : "block";
+
+    const bassBtn = root.querySelector(".bt-ost-bass");
+    if (bassBtn) {
+      bassBtn.classList.toggle("active", !!musicCfg.bassBoost);
+      bassBtn.textContent = musicCfg.bassBoost ? "BASS: ON" : "BASS";
+    }
+
+    const modeBtn = root.querySelector(".bt-ost-mode");
+    if (modeBtn) {
+      const mode = musicCfg.audioMode || "normal";
+      modeBtn.classList.toggle("active", mode !== "normal");
+      modeBtn.textContent = mode === "nightcore" ? "NIGHTCORE" : (mode === "slowed" ? "SLOWED" : "FX: OFF");
+    }
 
     const spdSel = root.querySelector(".bt-ost-spd");
     if (spdSel) {
@@ -855,6 +1144,22 @@
       });
       drawer.appendChild(b);
     });
+
+    startVisualizerIfNeeded();
+  }
+
+  function applyWidgetPosition(root) {
+    if (typeof musicCfg.posX === "number" && typeof musicCfg.posY === "number") {
+      root.style.right = "auto";
+      root.style.bottom = "auto";
+      root.style.left = `${Math.min(Math.max(8, window.innerWidth - 236), Math.max(8, musicCfg.posX))}px`;
+      root.style.top = `${Math.min(Math.max(8, window.innerHeight - 170), Math.max(8, musicCfg.posY))}px`;
+    } else {
+      root.style.left = "auto";
+      root.style.top = "auto";
+      root.style.right = "16px";
+      root.style.bottom = "16px";
+    }
   }
 
   function mountMiniPlayer() {
@@ -869,19 +1174,14 @@
 
     ensureOstStyles();
     if (existing) {
+      applyWidgetPosition(existing);
       updatePlayerUI();
       return;
     }
 
     const root = document.createElement("div");
     root.id = OST_ID;
-    if (typeof musicCfg.posX === "number" && typeof musicCfg.posY === "number") {
-      root.style.left = `${Math.min(window.innerWidth - 90, Math.max(8, musicCfg.posX))}px`;
-      root.style.top = `${Math.min(window.innerHeight - 50, Math.max(8, musicCfg.posY))}px`;
-    } else {
-      root.style.right = "16px";
-      root.style.bottom = "16px";
-    }
+    applyWidgetPosition(root);
 
     root.innerHTML = `
       <div class="bt-yt-wrap hidden-vid"></div>
@@ -896,10 +1196,17 @@
           </div>
         </div>
         <div class="bt-ost-title">A Place To Be Free</div>
+        <canvas class="bt-ost-viz" width="204" height="18"></canvas>
         <div class="bt-ost-ctrls">
+          <button class="bt-ost-cbtn bt-ost-shuf" title="Shuffle">🔀</button>
           <button class="bt-ost-cbtn bt-ost-prev" title="Previous">⏮</button>
           <button class="bt-ost-cbtn bt-ost-play" title="Play / Pause">▶</button>
           <button class="bt-ost-cbtn bt-ost-next" title="Next">⏭</button>
+          <button class="bt-ost-cbtn bt-ost-rep" title="Repeat current song">🔁</button>
+        </div>
+        <div class="bt-ost-fx-row">
+          <button class="bt-ost-fx-btn bt-ost-bass" title="Bass Boost (local MP3s)">BASS</button>
+          <button class="bt-ost-fx-btn bt-ost-mode" title="Cycle: Normal / Nightcore / Slowed">FX: OFF</button>
         </div>
         <div class="bt-ost-spd-row">
           <span class="bt-ost-spd-lbl">speed</span>
@@ -954,18 +1261,54 @@
       updatePlayerUI();
     });
 
+    root.querySelector(".bt-ost-shuf").addEventListener("click", () => {
+      musicCfg.shuffle = !musicCfg.shuffle;
+      chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
+    });
+
+    root.querySelector(".bt-ost-rep").addEventListener("click", () => {
+      musicCfg.repeat = !musicCfg.repeat;
+      chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
+    });
+
+    root.querySelector(".bt-ost-bass").addEventListener("click", () => {
+      musicCfg.bassBoost = !musicCfg.bassBoost;
+      if (currentChannel === "local") ensureLocalAudioGraph();
+      applyBassBoost();
+      chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
+    });
+
+    root.querySelector(".bt-ost-mode").addEventListener("click", () => {
+      const order = ["normal", "nightcore", "slowed"];
+      const nextMode = order[(order.indexOf(musicCfg.audioMode || "normal") + 1) % order.length];
+      musicCfg.audioMode = nextMode;
+      if (nextMode === "nightcore") musicCfg.playbackRate = 1.25;
+      else if (nextMode === "slowed") musicCfg.playbackRate = 0.80;
+      else musicCfg.playbackRate = 1.00;
+      applyPlaybackSpeed();
+      chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
+    });
+
     const spdSel = root.querySelector(".bt-ost-spd");
     spdSel.addEventListener("change", () => {
       musicCfg.playbackRate = Number(spdSel.value) || 1;
+      musicCfg.audioMode = "normal";
       applyPlaybackSpeed();
       chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
     });
 
     root.querySelector(".bt-ost-spd-rst").addEventListener("click", () => {
       musicCfg.playbackRate = 1;
+      musicCfg.audioMode = "normal";
       spdSel.value = "1.00";
       applyPlaybackSpeed();
       chrome.storage.local.set({ musicSettings: musicCfg });
+      updatePlayerUI();
     });
 
     root.querySelector(".bt-ost-play").addEventListener("click", () => {
@@ -995,21 +1338,26 @@
         return;
       }
 
+      const targetEl = track.isLocal ? localAudio : remoteAudio;
+      const targetChannel = track.isLocal ? "local" : "remote";
+
       if (isPlaying) {
         wantPlay = false;
-        audio.pause();
+        targetEl.pause();
         isPlaying = false;
         updatePlayerUI();
       } else {
         failCount = 0;
         stepDir = 1;
-        if (!audio.getAttribute("src")) {
+        if (currentChannel !== targetChannel || !targetEl.getAttribute("src")) {
           loadAndPlayTrack(true);
         } else {
           wantPlay = true;
-          audio.volume = Math.min(1, Math.max(0, Number(musicCfg.volume ?? 0.5)));
+          if (track.isLocal) ensureLocalAudioGraph();
+          applyVolume();
           applyPlaybackSpeed();
-          audio.play().then(() => {
+          applyBassBoost();
+          targetEl.play().then(() => {
             isPlaying = true;
             applyPlaybackSpeed();
             updatePlayerUI();
@@ -1019,14 +1367,18 @@
     });
 
     root.querySelector(".bt-ost-prev").addEventListener("click", () => {
-      trackIdx--;
+      const pl = getActivePlaylist();
+      if (!pl.tracks.length) return;
+      trackIdx = pickNextIndex(pl.tracks.length, -1);
       stepDir = -1;
       failCount = 0;
       loadAndPlayTrack(true);
     });
 
     root.querySelector(".bt-ost-next").addEventListener("click", () => {
-      trackIdx++;
+      const pl = getActivePlaylist();
+      if (!pl.tracks.length) return;
+      trackIdx = pickNextIndex(pl.tracks.length, 1);
       stepDir = 1;
       failCount = 0;
       loadAndPlayTrack(true);
@@ -1053,43 +1405,66 @@
       extra = { ...extra, ...(changes.extraSettings.newValue || {}) };
       applyAll();
     }
+
+    let ytAdded = false;
     if (changes.ytTracks) {
+      const prevLen = ytTracks.length;
       ytTracks = Array.isArray(changes.ytTracks.newValue) ? changes.ytTracks.newValue : [];
-      mountMiniPlayer();
+      if (ytTracks.length > prevLen) {
+        ytAdded = true;
+        musicCfg.activePlaylistId = "youtube";
+        musicCfg.enabled = true;
+        musicCfg.minimized = false;
+        if (!Array.isArray(musicCfg.enabledPlaylists)) musicCfg.enabledPlaylists = ["youtube"];
+        if (!musicCfg.enabledPlaylists.includes("youtube")) musicCfg.enabledPlaylists.unshift("youtube");
+        trackIdx = ytTracks.length - 1;
+      }
     }
+
     if (changes.musicSettings) {
       const prevPl = musicCfg.activePlaylistId;
       const prevCustomTs = musicCfg.customUpdatedAt;
-      musicCfg = { ...musicCfg, ...(changes.musicSettings.newValue || {}) };
+      musicCfg = { ...DEFAULT_MUSIC, ...musicCfg, ...(changes.musicSettings.newValue || {}) };
+      if (ytAdded) {
+        musicCfg.activePlaylistId = "youtube";
+        musicCfg.minimized = false;
+      }
 
-      const vol = Math.min(1, Math.max(0, Number(musicCfg.volume ?? 0.5)));
-      audio.volume = vol;
-      ytCmd("setVolume", [Math.round(vol * 100)]);
+      applyVolume();
       applyPlaybackSpeed();
+      applyBassBoost();
 
       if (prevCustomTs !== musicCfg.customUpdatedAt) {
         await refreshCustomTracks();
+        musicCfg.minimized = false;
       }
-      if (prevPl !== musicCfg.activePlaylistId || prevCustomTs !== musicCfg.customUpdatedAt) {
-        trackIdx = 0;
+      if (prevPl !== musicCfg.activePlaylistId || prevCustomTs !== musicCfg.customUpdatedAt || ytAdded) {
+        if (!ytAdded) trackIdx = 0;
         failCount = 0;
         stepDir = 1;
         if (isPlaying || wantPlay) loadAndPlayTrack(true);
         else stopAllPlayback();
       }
+    }
+
+    if (changes.ytTracks || changes.musicSettings) {
       mountMiniPlayer();
     }
   });
 
   new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("pointerlockchange", scheduleScan);
-  window.addEventListener("resize", scheduleScan);
+  window.addEventListener("resize", () => {
+    const root = document.getElementById(OST_ID);
+    if (root) applyWidgetPosition(root);
+    scheduleScan();
+  });
 
   chrome.storage.local.get(["activeTheme", "extraSettings", "musicSettings", "ytTracks"], async (data) => {
     currentTheme = data.activeTheme || null;
     ytTracks = Array.isArray(data.ytTracks) ? data.ytTracks : [];
     if (data.extraSettings) extra = { ...extra, ...data.extraSettings };
-    if (data.musicSettings) musicCfg = { ...musicCfg, ...data.musicSettings };
+    if (data.musicSettings) musicCfg = { ...DEFAULT_MUSIC, ...data.musicSettings };
     await refreshCustomTracks();
     applyAll();
     mountMiniPlayer();

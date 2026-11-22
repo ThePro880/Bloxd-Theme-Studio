@@ -1,1195 +1,346 @@
-const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+body {
+  width: 340px;
+  background: #131824;
+  color: #f1f5f9;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #1d2336;
+  border-bottom: 2px solid #2b3450;
+  padding: 10px 12px;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.brand-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: block;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.brand h1 {
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
-
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
-
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
-
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
-
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
-
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+.ver-pill {
+  background: #28314c;
+  border: 1px solid #3f4c73;
+  color: #facc15;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 3px;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+.btn-reset {
+  background: #252e47;
+  border: 1px solid #49567d;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 3px;
+  cursor: pointer;
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.btn-reset:hover {
+  background: #dc2626;
+  border-color: #ef4444;
+  color: #ffffff;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.container {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.card {
+  background: #1b2234;
+  border: 1.5px solid #354061;
+  border-radius: 4px;
+  padding: 10px;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.section-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
-
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
-
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
-
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
-
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
-
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+.preset-btn {
+  background: #242d47;
+  border: 1.5px solid #465378;
+  border-bottom-width: 3px;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 4px;
+  border-radius: 3px;
+  cursor: pointer;
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.preset-btn:hover {
+  background: #303d61;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.preset-btn.active {
+  background: #2563eb;
+  border-color: #60a5fa;
+  border-bottom-color: #1d4ed8;
+  color: #ffffff;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.text-inp,
+.select-inp {
+  width: 100%;
+  background: #131824;
+  border: 1.5px solid #465378;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+  border-radius: 3px;
+  outline: none;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.text-inp {
+  margin-bottom: 8px;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
-
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
-
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
-
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
-
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
-
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+.text-inp:focus,
+.select-inp:focus {
+  border-color: #3b82f6;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+.color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.color-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #141a29;
+  border: 1px solid #323d5e;
+  border-radius: 3px;
+  padding: 5px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cbd5e1;
+  cursor: pointer;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.color-item input[type="color"] {
+  width: 30px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.effect-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.effect-row .select-inp {
+  width: 180px;
+  padding: 5px 8px;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
-
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
-
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
-
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
-
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
-
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+.action-row {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 8px;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+.btn-blue,
+.btn-grey,
+.btn-more {
+  border: 0;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.btn-blue {
+  background: #3b82f6;
+  border-bottom: 3px solid #1d4ed8;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.btn-blue:hover {
+  background: #60a5fa;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.btn-grey {
+  background: #64748b;
+  border-bottom: 3px solid #475569;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.btn-grey:hover {
+  background: #94a3b8;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
-
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
-
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
-
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
-
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
-
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();const PRESETS = {
-  navidad: {
-    id: "navidad",
-    name: "Christmas",
-    mainBg: "#0d2b22",
-    sidebarBg: "#2b0c12",
-    loadingBg: "#0a221b",
-    panelBg: "#174234",
-    accent: "#ef4444",
-    text: "#f8fafc",
-    effect: "snow"
-  },
-  halloween: {
-    id: "halloween",
-    name: "Halloween",
-    mainBg: "#180d26",
-    sidebarBg: "#11081c",
-    loadingBg: "#140a21",
-    panelBg: "#2b1644",
-    accent: "#f97316",
-    text: "#ffedd5",
-    effect: "spooky"
-  },
-  verano: {
-    id: "verano",
-    name: "Summer",
-    mainBg: "#0369a1",
-    sidebarBg: "#0c4a6e",
-    loadingBg: "#0284c7",
-    panelBg: "#075985",
-    accent: "#facc15",
-    text: "#ffffff",
-    effect: "summer"
-  }
-};
-
-const els = {
-  name: document.getElementById("theme-name"),
-  main: document.getElementById("c-main"),
-  sidebar: document.getElementById("c-sidebar"),
-  loading: document.getElementById("c-loading"),
-  panel: document.getElementById("c-panel"),
-  accent: document.getElementById("c-accent"),
-  text: document.getElementById("c-text"),
-  effect: document.getElementById("c-effect"),
-  savedList: document.getElementById("saved-list"),
-  status: document.getElementById("status")
-};
-
-function showStatus(msg) {
-  els.status.textContent = msg;
-  setTimeout(() => {
-    if (els.status.textContent === msg) els.status.textContent = "";
-  }, 2200);
+.btn-more {
+  display: block;
+  width: 100%;
+  background: #22c55e;
+  border-bottom: 4px solid #15803d;
+  font-size: 13px;
+  padding: 9px 10px;
 }
 
-function getFormTheme() {
-  return {
-    id: "custom-" + Date.now(),
-    name: els.name.value.trim() || "My Theme",
-    mainBg: els.main.value,
-    sidebarBg: els.sidebar.value,
-    loadingBg: els.loading.value,
-    panelBg: els.panel.value,
-    accent: els.accent.value,
-    text: els.text.value,
-    effect: els.effect.value
-  };
+.btn-more:hover {
+  background: #4ade80;
 }
 
-function fillForm(theme) {
-  if (!theme) return;
-  els.main.value = theme.mainBg || "#1b2236";
-  els.sidebar.value = theme.sidebarBg || "#131826";
-  els.loading.value = theme.loadingBg || "#161c2e";
-  els.panel.value = theme.panelBg || "#242c44";
-  els.accent.value = theme.accent || "#38bdf8";
-  els.text.value = theme.text || "#ffffff";
-  els.effect.value = theme.effect || "none";
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 115px;
+  overflow-y: auto;
 }
 
-async function applyThemeToBloxd(theme) {
-  await chrome.storage.local.set({ activeTheme: theme });
-  const tabs = await chrome.tabs.query({
-    url: ["https://bloxd.io/*", "https://*.bloxd.io/*"]
-  });
-
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "APPLY_THEME", theme });
-    } catch {
-      // Applies on page reload if tab was open before installing
-    }
-  }
-  highlightActivePreset(theme ? theme.id : null);
+.empty-msg {
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 6px 0;
 }
 
-function highlightActivePreset(activeId) {
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.preset === activeId);
-  });
+.saved-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #242d47;
+  border: 1px solid #3c486e;
+  border-radius: 3px;
+  padding: 6px 8px;
 }
 
-async function renderSavedThemes() {
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-
-  if (saved.length === 0) {
-    els.savedList.innerHTML = '<p class="empty-msg">No saved themes yet.</p>';
-    return;
-  }
-
-  els.savedList.innerHTML = "";
-  saved.forEach((theme) => {
-    const item = document.createElement("div");
-    item.className = "saved-item";
-
-    const info = document.createElement("div");
-    info.className = "saved-info";
-
-    const dot = document.createElement("span");
-    dot.className = "mini-dot";
-    dot.style.background = `linear-gradient(135deg, ${theme.mainBg}, ${theme.accent})`;
-
-    const title = document.createElement("span");
-    title.textContent = theme.name;
-
-    info.append(dot, title);
-
-    const btns = document.createElement("div");
-    btns.className = "saved-btns";
-
-    const applyBtn = document.createElement("button");
-    applyBtn.className = "btn-apply";
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      fillForm(theme);
-      applyThemeToBloxd(theme);
-      showStatus(`"${theme.name}" applied`);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn-del";
-    delBtn.textContent = "X";
-    delBtn.title = "Delete theme";
-    delBtn.addEventListener("click", async () => {
-      const updated = saved.filter((t) => t.id !== theme.id);
-      await chrome.storage.local.set({ savedThemes: updated });
-      renderSavedThemes();
-      showStatus("Theme deleted");
-    });
-
-    btns.append(applyBtn, delBtn);
-    item.append(info, btns);
-    els.savedList.appendChild(item);
-  });
+.saved-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const preset = PRESETS[btn.dataset.preset];
-    if (!preset) return;
-    fillForm(preset);
-    applyThemeToBloxd(preset);
-    showStatus(`${preset.name} theme activated`);
-  });
-});
+.saved-info span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-document.getElementById("btn-preview").addEventListener("click", () => {
-  const tempTheme = getFormTheme();
-  applyThemeToBloxd(tempTheme);
-  showStatus("Preview applied");
-});
+.mini-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid #0f1424;
+  flex-shrink: 0;
+}
 
-document.getElementById("btn-save").addEventListener("click", async () => {
-  const newTheme = getFormTheme();
-  const data = await chrome.storage.local.get(["savedThemes"]);
-  const saved = data.savedThemes || [];
-  saved.unshift(newTheme);
+.saved-btns {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
 
-  await chrome.storage.local.set({ savedThemes: saved });
-  await applyThemeToBloxd(newTheme);
-  els.name.value = "";
-  renderSavedThemes();
-  showStatus(`"${newTheme.name}" saved`);
-});
+.btn-apply,
+.btn-del {
+  border: 0;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
 
-document.getElementById("btn-reset").addEventListener("click", () => {
-  applyThemeToBloxd(null);
-  showStatus("Default theme restored");
-});
+.btn-apply {
+  background: #3b82f6;
+}
 
-(async () => {
-  const data = await chrome.storage.local.get(["activeTheme"]);
-  if (data.activeTheme) {
-    fillForm(data.activeTheme);
-    highlightActivePreset(data.activeTheme.id);
-  }
-  renderSavedThemes();
-})();
+.btn-apply:hover {
+  background: #60a5fa;
+}
+
+.btn-del {
+  background: #dc2626;
+}
+
+.btn-del:hover {
+  background: #ef4444;
+}
+
+.status {
+  min-height: 16px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #4ade80;
+  text-align: center;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #161b29;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5882;
+  border-radius: 3px;
+}

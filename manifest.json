@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bloxd.io Theme Studio",
-  "version": "2.5",
-  "description": "Change the theme of Bloxd.io, customize backgrounds, and play Bloxd OSTs, local MP3s, and YouTube playlists.",
+  "version": "3.0",
+  "description": "Bloxd.io visual client & theme studio: custom themes, local GIF backgrounds, PvP HUD, client extras, arcade shop, and OST/MP3/YouTube music player.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://bloxd.io/*",
@@ -33,7 +33,7 @@
         "https://bloxd.io/more_settings*",
         "https://*.bloxd.io/more_settings*"
       ],
-      "js": ["ost_data.js", "more_settings.js"],
+      "js": ["ost_data.js", "v3_assets.js", "extras_v3.js", "more_settings.js", "extras_ui.js", "arcade_effects.js", "arcade_ui.js"],
       "run_at": "document_start"
     },
     {
@@ -41,7 +41,7 @@
         "https://bloxd.io/*",
         "https://*.bloxd.io/*"
       ],
-      "js": ["ost_data.js", "content.js"],
+      "js": ["ost_data.js", "v3_assets.js", "content.js", "hud_v3.js", "extras_v3.js", "arcade_effects.js"],
       "run_at": "document_idle"
     }
   ]

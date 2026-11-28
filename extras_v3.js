@@ -1,6 +1,6 @@
 (() => {
   window.BLOXD_V3_EXTRAS_DEFAULTS = {
-    watermarkEnabled: false, watermarkText: "Bloxd Studio v3.0", watermarkPosX: 16, watermarkPosY: 275,
+    watermarkEnabled: false, watermarkText: "Bloxd Studio v3.1", watermarkPosX: 16, watermarkPosY: 275,
     pingEnabled: false, pingPosX: 16, pingPosY: 320,
     clockEnabled: false, clock24h: false, clockPosX: 16, clockPosY: 365,
     maxCpsEnabled: false, maxCpsPosX: 16, maxCpsPosY: 410,

@@ -244,7 +244,7 @@
           <div class="brand">
             <span class="brand-logo">${LOGO_SVG}</span>
             <span>Bloxd Theme Studio</span>
-            <span class="ver-pill">v3.0</span>
+            <span class="ver-pill">v3.1</span>
           </div>
           <nav class="top-tabs">
             <button class="t-tab active" data-sec="backgrounds"><span>Visuals</span><span class="keycap">O</span></button>
@@ -1140,7 +1140,7 @@
             sizeDiv.className = "sub";
             sizeDiv.textContent = formatMB(tr.size);
             info.append(nameDiv, sizeDiv);
-            left.appendChild(info);
+            left.append(info);
 
             const btns = document.createElement("div");
             btns.style.cssText = "display:flex;gap:8px;flex-shrink:0";
@@ -1789,6 +1789,7 @@
         wrap.innerHTML = `
           <div class="card">
             <div class="card-title"><span>Update Log</span><span class="sub">Bloxd Theme Studio</span></div>
+            <div class="log-item"><b>v3.1</b> — Added the new <b>FPS Booster</b> module! Includes 3D WebGL resolution scaling (100% / 85% / 75% / 60%), high-performance GPU mode with antialiasing off, UI blur/shadow/animation cleanup, ad container hiding, 1-click presets (<b>Off / Balanced / Ultra</b>), and a draggable live FPS &amp; frame-time counter (<b>Alt + F</b>).</div>
             <div class="log-item"><b>v3.0</b> — Major Visual Client update! Added <b>PvP HUD</b> (Custom Crosshair editor + PNG upload, WASD Keystrokes + CPS, Live FPS, Session/Speedrun Timer), <b>PC Image &amp; GIF Backgrounds</b>, <b>Glassmorphism</b>, <b>RGB Borders</b>, custom fonts &amp; cursors, particle shapes, <b>Music Player v3</b> (Shuffle, Repeat, Live Visualizer, Bass Boost, Nightcore/Slowed), <b>Favorite Lobbies</b>, <b>Theme Editor</b>, <b>Random Theme Dice</b>, and 3 new presets.</div>
             <div class="log-item"><b>v2.5</b> — Added <b>YouTube Music Search &amp; Playlist</b>, <b>Upload MP3 / Audio</b> from PC, <b>Playback Speed control (0.05x – 2.00x)</b>, Bloxd OST Playlists, and draggable floating mini player.</div>
             <div class="log-item"><b>v2.0</b> — Added <code>bloxd.io/more_settings</code> page in original Bloxd style, custom gradient &amp; image backgrounds, particle controls, bonus themes, and Import/Export theme codes.</div>
@@ -1804,8 +1805,8 @@
       if (currentSection === "info") {
         wrap.innerHTML = `
           <div class="card">
-            <div class="card-title"><span>Bloxd.io Theme Studio v3.0</span></div>
-            <p class="sub" style="line-height:1.6">All-in-one visual theme studio, PvP HUD overlay, and OST/MP3/YouTube music player for Bloxd.io. Press the red <b>X</b> button or <b>Esc</b> at any time to return to Bloxd.io.</p>
+            <div class="card-title"><span>Bloxd.io Theme Studio v3.1</span></div>
+            <p class="sub" style="line-height:1.6">All-in-one visual theme studio, PvP HUD overlay, OST/MP3/YouTube music player, and built-in <b>FPS Booster</b> (added in <b>v3.1</b>) for Bloxd.io. Press the red <b>X</b> button or <b>Esc</b> at any time to return to Bloxd.io.</p>
           </div>
           <div class="card">
             <div class="card-title"><span>Danger Zone</span></div>

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bloxd.io Theme Studio",
-  "version": "3.0",
-  "description": "Bloxd.io visual client & theme studio: custom themes, local GIF backgrounds, PvP HUD, client extras, arcade shop, and OST/MP3/YouTube music player.",
+  "version": "3.1",
+  "description": "Bloxd.io visual client & theme studio: custom themes, local GIF backgrounds, PvP HUD, client extras, arcade shop, OST/MP3/YouTube music player, and FPS Booster.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://bloxd.io/*",
@@ -10,37 +10,24 @@
     "https://www.youtube.com/*",
     "https://music.youtube.com/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "icons": {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
-  },
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "Bloxd.io Theme Studio",
-    "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
-    }
-  },
+  "background": { "service_worker": "background.js" },
+  "icons": { "16": "icon.png", "48": "icon.png", "128": "icon.png" },
+  "action": { "default_popup": "popup.html" },
   "content_scripts": [
     {
-      "matches": [
-        "https://bloxd.io/more_settings*",
-        "https://*.bloxd.io/more_settings*"
-      ],
+      "matches": ["https://bloxd.io/*", "https://*.bloxd.io/*"],
+      "exclude_matches": ["https://bloxd.io/more_settings*", "https://*.bloxd.io/more_settings*"],
+      "js": ["fps_booster.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://bloxd.io/more_settings*", "https://*.bloxd.io/more_settings*"],
       "js": ["ost_data.js", "v3_assets.js", "extras_v3.js", "more_settings.js", "extras_ui.js", "arcade_effects.js", "arcade_ui.js"],
       "run_at": "document_start"
     },
     {
-      "matches": [
-        "https://bloxd.io/*",
-        "https://*.bloxd.io/*"
-      ],
+      "matches": ["https://bloxd.io/*", "https://*.bloxd.io/*"],
       "js": ["ost_data.js", "v3_assets.js", "content.js", "hud_v3.js", "extras_v3.js", "arcade_effects.js"],
       "run_at": "document_idle"
     }
